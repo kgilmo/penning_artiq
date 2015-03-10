@@ -1,5 +1,6 @@
-import asyncio
 from copy import copy
+import collections
+import asyncio
 
 
 class AsyncioServer:
@@ -13,7 +14,7 @@ class AsyncioServer:
         self._client_tasks = set()
 
     @asyncio.coroutine
-    def start(self, host, port):
+    def start(self, host, port, bind_localhost=True):
         """Starts the server.
 
         The user must call ``stop`` to free resources properly after this
@@ -21,19 +22,23 @@ class AsyncioServer:
 
         This method is a `coroutine`.
 
-        :param host: Bind address of the server (see ``asyncio.start_server``
+        :param host: Bind addresses of the server (see ``asyncio.start_server``
             from the Python standard library).
         :param port: TCP port to bind to.
-
+        :param bind_localhost: Add localhost IPv6 and IPv4 addresses to the
+            list of bind addresses.
         """
+        if (isinstance(host, str)
+                or not isinstance(host, collections.Iterable)):
+            host = [host]
+        if bind_localhost:
+            host = host + ["::1", "127.0.0.1"]
         self.server = yield from asyncio.start_server(self._handle_connection,
                                                       host, port)
 
     @asyncio.coroutine
     def stop(self):
-        """Stops the server.
-
-        """
+        """Stops the server."""
         wait_for = copy(self._client_tasks)
         for task in self._client_tasks:
             task.cancel()
