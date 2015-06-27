@@ -1,7 +1,3 @@
-#include <generated/csr.h>
-
-#ifdef CSR_ETHMAC_BASE
-
 #include <netif/etharp.h>
 #include <netif/liteethif.h>
 #include <lwip/init.h>
@@ -211,5 +207,3 @@ void kserver_service(void)
             kserver_close(active_cs, active_pcb);
     }
 }
-
-#endif /* CSR_ETHMAC_BASE */

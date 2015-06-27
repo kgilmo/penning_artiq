@@ -1,7 +1,3 @@
-#include <generated/csr.h>
-
-#ifdef CSR_ETHMAC_BASE
-
 #include <netif/etharp.h>
 #include <lwip/init.h>
 #include <lwip/memp.h>
@@ -11,6 +7,8 @@
 #include <lwip/sys.h>
 #include <lwip/udp.h>
 #include <lwip/timers.h>
+
+#include <generated/csr.h>
 
 #include "log.h"
 #include "moninj.h"
@@ -152,5 +150,3 @@ void moninj_init(void)
     udp_bind(listen_pcb, IP_ADDR_ANY, 3250);
     udp_recv(listen_pcb, moninj_recv, NULL);
 }
-
-#endif /* CSR_ETHMAC_BASE */

@@ -32,8 +32,33 @@ CORE4OBJS=$(LWIPDIR)/core/ipv4/icmp.o \
 NETIFOBJS=$(LWIPDIR)/netif/etharp.o  \
 	netif/liteethif.o
 
+PPPOBJS=$(LWIPDIR)/netif/ppp/auth.o \
+	$(LWIPDIR)/netif/ppp/ccp.o \
+	$(LWIPDIR)/netif/ppp/chap-md5.o \
+	$(LWIPDIR)/netif/ppp/chap_ms.o \
+	$(LWIPDIR)/netif/ppp/chap-new.o \
+	$(LWIPDIR)/netif/ppp/demand.o \
+	$(LWIPDIR)/netif/ppp/eap.o \
+	$(LWIPDIR)/netif/ppp/ecp.o \
+	$(LWIPDIR)/netif/ppp/eui64.o \
+	$(LWIPDIR)/netif/ppp/fsm.o \
+	$(LWIPDIR)/netif/ppp/ipcp.o \
+	$(LWIPDIR)/netif/ppp/ipv6cp.o \
+	$(LWIPDIR)/netif/ppp/lcp.o \
+	$(LWIPDIR)/netif/ppp/magic.o \
+	$(LWIPDIR)/netif/ppp/mppe.o \
+	$(LWIPDIR)/netif/ppp/multilink.o \
+	$(LWIPDIR)/netif/ppp/ppp.o \
+	$(LWIPDIR)/netif/ppp/pppcrypt.o \
+	$(LWIPDIR)/netif/ppp/pppoe.o \
+	$(LWIPDIR)/netif/ppp/pppol2tp.o \
+	$(LWIPDIR)/netif/ppp/pppos.o \
+	$(LWIPDIR)/netif/ppp/upap.o \
+	$(LWIPDIR)/netif/ppp/utils.o \
+	$(LWIPDIR)/netif/ppp/vj.o
+
 # LWIPOBJS: All the above.
-LWIPOBJS=$(COREOBJS) $(CORE4OBJS) $(NETIFOBJS)
+LWIPOBJS=$(COREOBJS) $(CORE4OBJS) $(NETIFOBJS) $(PPPOBJS)
 OBJS_LIB+=$(LWIPOBJS)
 
 LWIPLIB=liblwip.a
