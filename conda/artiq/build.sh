@@ -18,9 +18,9 @@ mkdir -p $BIN_PREFIX/kc705 $BIN_PREFIX/pipistrello
 
 # build for KC705
 
-cd $SRC_DIR/misoc; python make.py -X ../soc -t artiq_kc705 build-headers build-bios; cd -
+cd $SRC_DIR/misoc; $PYTHON make.py -X ../soc -t artiq_kc705 build-headers build-bios; cd -
 make -C soc/runtime clean runtime.fbi
-cd $SRC_DIR/misoc; python make.py -X ../soc -t artiq_kc705 $MISOC_EXTRA_VIVADO_CMDLINE build-bitstream; cd -
+cd $SRC_DIR/misoc; $PYTHON make.py -X ../soc -t artiq_kc705 $MISOC_EXTRA_VIVADO_CMDLINE build-bitstream; cd -
 
 # install KC705 binaries
 
@@ -32,9 +32,9 @@ mv bscan_spi_kc705.bit $BIN_PREFIX/kc705/
 
 # build for Pipistrello
 
-cd $SRC_DIR/misoc; python make.py -X ../soc -t artiq_pipistrello build-headers build-bios; cd -
+cd $SRC_DIR/misoc; $PYTHON make.py -X ../soc -t artiq_pipistrello build-headers build-bios; cd -
 make -C soc/runtime clean runtime.fbi
-cd $SRC_DIR/misoc; python make.py -X ../soc -t artiq_pipistrello $MISOC_EXTRA_ISE_CMDLINE build-bitstream; cd -
+cd $SRC_DIR/misoc; $PYTHON make.py -X ../soc -t artiq_pipistrello $MISOC_EXTRA_ISE_CMDLINE build-bitstream; cd -
 
 # install Pipistrello binaries
 
@@ -45,3 +45,7 @@ wget http://www.phys.ethz.ch/~robertjo/bscan_spi_lx45_csg324.bit
 mv bscan_spi_lx45_csg324.bit $BIN_PREFIX/pipistrello/
 
 cp artiq/frontend/artiq_flash.sh $PREFIX/bin
+
+# misc
+cp misc/99-papilio.rules $ARTIQ_PREFIX/misc/
+cp misc/99-kc705.rules $ARTIQ_PREFIX/misc/

@@ -12,7 +12,6 @@ from prettytable import PrettyTable
 from artiq.protocols.pc_rpc import Client
 from artiq.protocols.sync_struct import Subscriber
 from artiq.protocols import pyon
-from artiq.tools import format_arguments
 
 
 def clear_screen():
@@ -43,8 +42,8 @@ def get_argparser():
     parser_add.add_argument("-f", "--flush", default=False, action="store_true",
                             help="flush the pipeline before preparing "
                             "the experiment")
-    parser_add.add_argument("-e", "--experiment", default=None,
-                            help="experiment to run")
+    parser_add.add_argument("-c", "--class-name", default=None,
+                            help="name of the class to run")
     parser_add.add_argument("file",
                             help="file containing the experiment to run")
     parser_add.add_argument("arguments", nargs="*",
@@ -82,6 +81,9 @@ def get_argparser():
         "what",
         help="select object to show: schedule/devices/parameters")
 
+    parser_scan_repository = subparsers.add_parser(
+        "scan-repository", help="rescan repository")
+
     return parser
 
 
@@ -102,7 +104,7 @@ def _action_submit(remote, args):
 
     expid = {
         "file": args.file,
-        "experiment": args.experiment,
+        "class_name": args.class_name,
         "arguments": arguments,
     }
     if args.timed is None:
@@ -134,6 +136,10 @@ def _action_del_parameter(remote, args):
     remote.delete(args.name)
 
 
+def _action_scan_repository(remote, args):
+    remote.scan_async()
+
+
 def _show_schedule(schedule):
     clear_screen()
     if schedule:
@@ -142,7 +148,7 @@ def _show_schedule(schedule):
                                   x[1]["due_date"] or 0,
                                   x[0]))
         table = PrettyTable(["RID", "Pipeline", "    Status    ", "Prio",
-                             "Due date", "File", "Experiment", "Arguments"])
+                             "Due date", "File", "Class name"])
         for rid, v in l:
             row = [rid, v["pipeline"], v["status"], v["priority"]]
             if v["due_date"] is None:
@@ -151,11 +157,10 @@ def _show_schedule(schedule):
                 row.append(time.strftime("%m/%d %H:%M:%S",
                            time.localtime(v["due_date"])))
             row.append(v["expid"]["file"])
-            if v["expid"]["experiment"] is None:
+            if v["expid"]["class_name"] is None:
                 row.append("")
             else:
-                row.append(v["expid"]["experiment"])
-            row.append(format_arguments(v["expid"]["arguments"]))
+                row.append(v["expid"]["class_name"])
             table.add_row(row)
         print(table)
     else:
@@ -228,6 +233,7 @@ def main():
             "del_device": "master_ddb",
             "set_parameter": "master_pdb",
             "del_parameter": "master_pdb",
+            "scan_repository": "master_repository"
         }[action]
         remote = Client(args.server, port, target_name)
         try:

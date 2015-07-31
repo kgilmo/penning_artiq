@@ -5,7 +5,7 @@ from pyqtgraph import dockarea
 from pyqtgraph import LayoutWidget
 
 from artiq.protocols.sync_struct import Subscriber
-from artiq.gui.tools import DictSyncModel
+from artiq.gui.tools import DictSyncModel, short_format
 
 
 class ParametersModel(DictSyncModel):
@@ -20,7 +20,7 @@ class ParametersModel(DictSyncModel):
         if column == 0:
             return k
         elif column == 1:
-            return str(v)
+            return short_format(v)
         else:
            raise ValueError
 
@@ -29,21 +29,24 @@ class ParametersDock(dockarea.Dock):
     def __init__(self):
         dockarea.Dock.__init__(self, "Parameters", size=(400, 300))
 
-        splitter = QtGui.QSplitter(QtCore.Qt.Horizontal)
-        self.addWidget(splitter)
         grid = LayoutWidget()
-        splitter.addWidget(grid)
+        self.addWidget(grid)
 
         self.search = QtGui.QLineEdit()
         self.search.setPlaceholderText("search...")
-        self.search.editingFinished.connect(self.search_parameters)
+        self.search.editingFinished.connect(self._search_parameters)
         grid.addWidget(self.search, 0, 0)
 
         self.table = QtGui.QTableView()
         self.table.setSelectionBehavior(QtGui.QAbstractItemView.SelectRows)
+        self.table.horizontalHeader().setResizeMode(
+            QtGui.QHeaderView.ResizeToContents)
         grid.addWidget(self.table, 1, 0)
 
-    def search_parameters(self):
+    def get_parameter(self, key):
+        return self.table_model.backing_store[key]
+
+    def _search_parameters(self):
         model = self.table.model()
         parentIndex = model.index(0, 0)
         numRows = model.rowCount(parentIndex)
@@ -66,6 +69,6 @@ class ParametersDock(dockarea.Dock):
         yield from self.subscriber.close()
 
     def init_parameters_model(self, init):
-        table_model = ParametersModel(self.table, init)
-        self.table.setModel(table_model)
-        return table_model
+        self.table_model = ParametersModel(self.table, init)
+        self.table.setModel(self.table_model)
+        return self.table_model

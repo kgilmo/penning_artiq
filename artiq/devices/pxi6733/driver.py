@@ -1,8 +1,10 @@
 # Yann Sionneau <ys@m-labs.hk>, 2015
 
 from ctypes import byref, c_ulong
-import numpy as np
 import logging
+
+import numpy as np
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +25,11 @@ class DAQmx:
 
     def __init__(self, channels, clock):
         """
-        :param channels: List of channels as a string or bytes(), following
+        :param channels: List of channels as a string, following
             the physical channels lists and ranges NI-DAQmx syntax.
 
             Example: Dev1/ao0, Dev1/ao1:ao3
-        :param clock: Clock source terminal as a string or bytes(), following
+        :param clock: Clock source terminal as a string, following
             NI-DAQmx terminal names syntax.
 
             Example: PFI5
@@ -40,7 +42,7 @@ class DAQmx:
         self.task = None
         self.daq = daq
 
-    def done_callback_py(self, taskhandle, status, callback_data):
+    def _done_callback(self, taskhandle, status, callback_data):
         if taskhandle != self.task:
             logger.warning("done callback called with unexpected task")
         else:
@@ -61,9 +63,9 @@ class DAQmx:
         The device will output samples at each clock rising edge.
         The device waits for a clock rising edge to output the first sample.
 
-        When using several channels simultaneously, you must concatenate the
-        values for the different channels in the ``values`` array.
-        The sample values for the same channel must be grouped together.
+        When using several channels simultaneously, you can either concatenate
+        the values for the different channels in a 1-dimensional ``values``
+        numpy ndarray.
 
         Example:
 
@@ -74,15 +76,21 @@ class DAQmx:
         channel and the two following samples will be output via the second
         channel.
 
+        Or you can use a 2-dimensional numpy ndarray like this:
+
+        >>> values = np.array([[ch0_samp0, ch0_samp1],[ch1_samp0, ch1_samp1]],
+                              dtype=float)
+
         Any call to this method will cancel any previous task even if it has
         not yet completed.
 
         :param sampling_freq: The sampling frequency in samples per second.
-        :param values: A numpy array of sample values to load in the device.
+        :param values: A numpy ndarray of sample values (in volts) to load in
+            the device.
         """
 
         self.clear_pending_task()
-
+        values = values.flatten()
         t = self.daq.Task()
         t.CreateAOVoltageChan(self.channels, b"",
                               min(values), max(values),
@@ -113,7 +121,7 @@ class DAQmx:
         if ret:
             raise IOError("Error while writing samples to the channel buffer")
 
-        done_cb = self.daq.DAQmxDoneEventCallbackPtr(self.done_callback_py)
+        done_cb = self.daq.DAQmxDoneEventCallbackPtr(self._done_callback)
         self.task = t.taskHandle
         self.daq.DAQmxRegisterDoneEvent(t.taskHandle, 0, done_cb, None)
         t.StartTask()

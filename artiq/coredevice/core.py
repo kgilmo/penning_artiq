@@ -1,7 +1,6 @@
 import os
 
 from artiq.language.core import *
-from artiq.language.db import *
 from artiq.language.units import ns
 
 from artiq.transforms.inline import inline
@@ -14,7 +13,7 @@ from artiq.transforms.interleave import interleave
 from artiq.transforms.lower_time import lower_time
 from artiq.transforms.unparse import unparse
 
-from artiq.coredevice.runtime import Environment
+from artiq.coredevice.runtime import Runtime
 
 from artiq.py2llvm import get_runtime_binary
 
@@ -46,17 +45,16 @@ def _no_debug_unparse(label, node):
     pass
 
 
-class Core(AutoDB):
-    class DBKeys:
-        comm = Device()
-        ref_period = Argument(8*ns)
-        external_clock = Argument(False)
+class Core:
+    def __init__(self, dmgr, ref_period=8*ns, external_clock=False):
+        self.comm = dmgr.get("comm")
+        self.ref_period = ref_period
+        self.external_clock = external_clock
 
-    def build(self):
         self.first_run = True
         self.core = self
         self.comm.core = self
-        self.runtime_env = Environment()
+        self.runtime = Runtime()
 
     def transform_stack(self, func_def, rpc_map, exception_map,
                         debug_unparse=_no_debug_unparse):
@@ -104,7 +102,7 @@ class Core(AutoDB):
         debug_unparse("inline", func_def)
         self.transform_stack(func_def, rpc_map, exception_map, debug_unparse)
 
-        binary = get_runtime_binary(self.runtime_env, func_def)
+        binary = get_runtime_binary(self.runtime, func_def)
 
         return binary, rpc_map, exception_map
 
@@ -116,15 +114,14 @@ class Core(AutoDB):
         binary, rpc_map, exception_map = self.compile(
             k_function, k_args, k_kwargs)
         self.comm.load(binary)
-        self.comm.run(k_function.__name__, self.first_run)
+        self.comm.run(k_function.__name__)
         self.comm.serve(rpc_map, exception_map)
         self.first_run = False
 
     @kernel
-    def get_rtio_time(self):
-        return cycles_to_time(syscall("rtio_get_counter"))
+    def get_rtio_counter_mu(self):
+        return syscall("rtio_get_counter")
 
     @kernel
     def break_realtime(self):
-        t = syscall("rtio_get_counter") + 125000
-        at(cycles_to_time(t))
+        at_mu(syscall("rtio_get_counter") + 125000)

@@ -22,7 +22,9 @@ from unittest.mock import MagicMock
 class Mock(MagicMock):
     @classmethod
     def __getattr__(cls, name):
-            return Mock()
+        if name == "_mock_methods":
+            return None
+        return Mock()
 
 
 mock_modules = ["artiq.gui.moninj", "quamash", "pyqtgraph", "matplotlib"]
@@ -118,7 +120,7 @@ pygments_style = 'sphinx'
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = 'classic'
+html_theme = 'default'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the

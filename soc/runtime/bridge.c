@@ -5,12 +5,14 @@
 #include "dds.h"
 #include "bridge.h"
 
+#define TIME_BUFFER (8000 << RTIO_FINE_TS_WIDTH)
+
 static void dds_write(int addr, int data)
 {
     rtio_chan_sel_write(RTIO_DDS_CHANNEL);
     rtio_o_address_write(addr);
     rtio_o_data_write(data);
-    rtio_o_timestamp_write(rtio_get_counter() + 8000);
+    rtio_o_timestamp_write(rtio_get_counter() + TIME_BUFFER);
     rtio_o_we_write(1);
 }
 
@@ -46,7 +48,7 @@ void bridge_main(void)
                 struct msg_brg_ttl_out *msg;
 
                 msg = (struct msg_brg_ttl_out *)umsg;
-                ttl_set_oe(rtio_get_counter() + 8000, msg->channel, msg->value);
+                ttl_set_oe(rtio_get_counter() + TIME_BUFFER, msg->channel, msg->value);
                 mailbox_acknowledge();
                 break;
             }
@@ -54,7 +56,7 @@ void bridge_main(void)
                 struct msg_brg_ttl_out *msg;
 
                 msg = (struct msg_brg_ttl_out *)umsg;
-                ttl_set_o(rtio_get_counter() + 8000, msg->channel, msg->value);
+                ttl_set_o(rtio_get_counter() + TIME_BUFFER, msg->channel, msg->value);
                 mailbox_acknowledge();
                 break;
             }
@@ -66,7 +68,7 @@ void bridge_main(void)
                 struct msg_brg_dds_sel *msg;
 
                 msg = (struct msg_brg_dds_sel *)umsg;
-                dds_write(DDS_GPIO, msg->channel);
+                dds_write(DDS_GPIO, msg->channel << 1);
                 mailbox_acknowledge();
                 break;
             }
@@ -74,7 +76,7 @@ void bridge_main(void)
                 unsigned int g;
 
                 g = dds_read(DDS_GPIO);
-                dds_write(DDS_GPIO, g | (1 << 7));
+                dds_write(DDS_GPIO, g | 1);
                 dds_write(DDS_GPIO, g);
 
                 mailbox_acknowledge();

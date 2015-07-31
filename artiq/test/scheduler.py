@@ -7,12 +7,18 @@ from artiq import *
 from artiq.master.scheduler import Scheduler
 
 
-class EmptyExperiment(Experiment, AutoDB):
+class EmptyExperiment(EnvExperiment):
+    def build(self):
+        pass
+
     def run(self):
         pass
 
 
-class BackgroundExperiment(Experiment, AutoDB):
+class BackgroundExperiment(EnvExperiment):
+    def build(self):
+        self.attr_device("scheduler")
+
     def run(self):
         while True:
             self.scheduler.pause()
@@ -22,7 +28,7 @@ class BackgroundExperiment(Experiment, AutoDB):
 def _get_expid(name):
     return {
         "file": sys.modules[__name__].__file__,
-        "experiment": name,
+        "class_name": name,
         "arguments": dict()
     }
 
@@ -67,7 +73,7 @@ class SchedulerCase(unittest.TestCase):
         expect = _get_basic_steps(1, expid)
         done = asyncio.Event()
         expect_idx = 0
-        def notify(notifier, mod):
+        def notify(mod):
             nonlocal expect_idx
             self.assertEqual(mod, expect[expect_idx])
             expect_idx += 1
@@ -104,7 +110,7 @@ class SchedulerCase(unittest.TestCase):
         background_running = asyncio.Event()
         done = asyncio.Event()
         expect_idx = 0
-        def notify(notifier, mod):
+        def notify(mod):
             nonlocal expect_idx
             if mod == {"path": [0],
                        "value": "running",
@@ -138,7 +144,7 @@ class SchedulerCase(unittest.TestCase):
         first_preparing = asyncio.Event()
         done = asyncio.Event()
         expect_idx = 0
-        def notify(notifier, mod):
+        def notify(mod):
             nonlocal expect_idx
             if mod == {"path": [0],
                        "value": "preparing",

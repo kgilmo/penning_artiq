@@ -11,8 +11,9 @@
 #include "log.h"
 #include "kloader.h"
 #include "exceptions.h"
-#include "session.h"
 #include "flash_storage.h"
+#include "rtiocrg.h"
+#include "session.h"
 
 #define BUFFER_IN_SIZE (1024*1024)
 #define BUFFER_OUT_SIZE (1024*1024)
@@ -55,7 +56,6 @@ static void submit_output(int len)
 }
 
 static int user_kernel_state;
-static long long int now;
 
 enum {
     USER_KERNEL_NONE = 0,
@@ -70,11 +70,13 @@ void session_start(void)
     memset(&buffer_out[4], 0, 4);
     kloader_stop();
     user_kernel_state = USER_KERNEL_NONE;
+    now = -1;
 }
 
 void session_end(void)
 {
     kloader_stop();
+    now = -1;
     kloader_start_idle_kernel();
 }
 
@@ -151,10 +153,12 @@ static int process_input(void)
                 log("Attempted to switch RTIO clock while kernel running");
                 buffer_out[8] = REMOTEMSG_TYPE_CLOCK_SWITCH_FAILED;
                 submit_output(9);
-                break;    
+                break;
             }
-            rtio_crg_clock_sel_write(buffer_in[9]);
-            buffer_out[8] = REMOTEMSG_TYPE_CLOCK_SWITCH_COMPLETED;
+            if(rtiocrg_switch_clock(buffer_in[9]))
+                buffer_out[8] = REMOTEMSG_TYPE_CLOCK_SWITCH_COMPLETED;
+            else
+                buffer_out[8] = REMOTEMSG_TYPE_CLOCK_SWITCH_FAILED;
             submit_output(9);
             break;
         case REMOTEMSG_TYPE_LOAD_OBJECT:
@@ -189,10 +193,7 @@ static int process_input(void)
             }
             buffer_in[buffer_in_index] = 0;
 
-            if(buffer_in[9])
-                now = -1;
-
-            k = kloader_find((char *)&buffer_in[10]);
+            k = kloader_find((char *)&buffer_in[9]);
             if(k == NULL) {
                 log("Failed to find kernel entry point '%s' in object", &buffer_in[9]);
                 buffer_out[8] = REMOTEMSG_TYPE_KERNEL_STARTUP_FAILED;
@@ -217,11 +218,6 @@ static int process_input(void)
             memcpy(&reply.eid, &buffer_in[9], 4);
             memcpy(&reply.retval, &buffer_in[13], 4);
             mailbox_send_and_wait(&reply);
-            /* HACK/FIXME: workaround for intermittent crashes that happen when running rpc_timing with comm_tcp */
-            int i;
-            for(i=0;i<100000;i++)
-                __asm__ volatile("l.nop");
-            /* */
             user_kernel_state = USER_KERNEL_RUNNING;
             break;
         }
@@ -316,6 +312,9 @@ int session_input(void *data, int len)
             /* receiving length */
             buffer_in[buffer_in_index++] = _data[consumed];
             consumed++; len--;
+            if((buffer_in_index == 8) && (get_in_packet_len() == 0))
+                /* zero-length packet = session reset */
+                return -2;
         } else {
             /* receiving payload */
             int packet_len;
@@ -424,16 +423,6 @@ static int add_rpc_value(int bi, int type_tag, void *value)
     return bi - obi;
 }
 
-static int validate_kpointer(void *p)
-{
-    unsigned int v = (unsigned int)p;
-    if((v < 0x40400000) || (v > (0x4fffffff - 1024*1024))) {
-        log("Received invalid pointer from kernel CPU: 0x%08x", v);
-        return 0;
-    }
-    return 1;
-}
-
 static int send_rpc_request(int rpc_num, va_list args)
 {
     int r;
@@ -451,7 +440,7 @@ static int send_rpc_request(int rpc_num, va_list args)
             v = NULL;
         else {
             v = va_arg(args, void *);
-            if(!validate_kpointer(v))
+            if(!kloader_validate_kpointer(v))
                 return 0;
         }
         r = add_rpc_value(bi, type_tag, v);
@@ -470,29 +459,16 @@ static int send_rpc_request(int rpc_num, va_list args)
 /* assumes output buffer is empty when called */
 static int process_kmsg(struct msg_base *umsg)
 {
+    if(!kloader_validate_kpointer(umsg))
+        return 0;
+    if(kloader_is_essential_kmsg(umsg->type))
+        return 1; /* handled elsewhere */
     if(user_kernel_state != USER_KERNEL_RUNNING) {
-        log("Received message from kernel CPU while not in running state");
+        log("Received unexpected message from kernel CPU while not in running state");
         return 0;
     }
-    if(!validate_kpointer(umsg))
-        return 0;
 
     switch(umsg->type) {
-        case MESSAGE_TYPE_NOW_INIT_REQUEST: {
-            struct msg_now_init_reply reply;
-
-            reply.type = MESSAGE_TYPE_NOW_INIT_REPLY;
-            reply.now = now;
-            mailbox_send_and_wait(&reply);
-            break;
-        }
-        case MESSAGE_TYPE_NOW_SAVE: {
-            struct msg_now_save *msg = (struct msg_now_save *)umsg;
-
-            now = msg->now;
-            mailbox_acknowledge();
-            break;
-        }
         case MESSAGE_TYPE_FINISHED:
             buffer_out[8] = REMOTEMSG_TYPE_KERNEL_FINISHED;
             submit_output(9);
@@ -539,13 +515,6 @@ static int process_kmsg(struct msg_base *umsg)
             mailbox_acknowledge();
             break;
         }
-        case MESSAGE_TYPE_LOG: {
-            struct msg_log *msg = (struct msg_log *)umsg;
-
-            log(msg->fmt, msg->args);
-            mailbox_acknowledge();
-            break;
-        }
         default: {
             log("Received invalid message type from kernel CPU");
             return 0;
@@ -561,10 +530,17 @@ void session_poll(void **data, int *len)
 {
     int l;
 
-    if((user_kernel_state == USER_KERNEL_RUNNING) && watchdog_expired()) {
-        log("Watchdog expired");
-        *len = -1;
-        return;
+    if(user_kernel_state == USER_KERNEL_RUNNING) {
+        if(watchdog_expired()) {
+            log("Watchdog expired");
+            *len = -1;
+            return;
+        }
+        if(!rtiocrg_check()) {
+            log("RTIO clock failure");
+            *len = -1;
+            return;
+        }
     }
 
     l = get_out_packet_len();

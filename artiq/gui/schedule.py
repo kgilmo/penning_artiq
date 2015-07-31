@@ -6,14 +6,13 @@ from pyqtgraph import dockarea
 
 from artiq.protocols.sync_struct import Subscriber
 from artiq.gui.tools import DictSyncModel
-from artiq.tools import format_arguments
 
 
 class _ScheduleModel(DictSyncModel):
     def __init__(self, parent, init):
         DictSyncModel.__init__(self,
             ["RID", "Pipeline", "Status", "Prio", "Due date",
-             "File", "Experiment", "Arguments"],
+             "File", "Class name"],
             parent, init)
 
     def sort_key(self, k, v):
@@ -38,24 +37,26 @@ class _ScheduleModel(DictSyncModel):
         elif column == 5:
             return v["expid"]["file"]
         elif column == 6:
-            if v["expid"]["experiment"] is None:
+            if v["expid"]["class_name"] is None:
                 return ""
             else:
-                return v["expid"]["experiment"]
-        elif column == 7:
-            return format_arguments(v["expid"]["arguments"])
+                return v["expid"]["class_name"]
         else:
             raise ValueError
 
 
 class ScheduleDock(dockarea.Dock):
-    def __init__(self, schedule_ctl):
+    def __init__(self, status_bar, schedule_ctl):
         dockarea.Dock.__init__(self, "Schedule", size=(1000, 300))
 
+        self.status_bar = status_bar
         self.schedule_ctl = schedule_ctl
 
         self.table = QtGui.QTableView()
         self.table.setSelectionBehavior(QtGui.QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        self.table.horizontalHeader().setResizeMode(
+            QtGui.QHeaderView.ResizeToContents)
         self.addWidget(self.table)
 
         self.table.setContextMenuPolicy(QtCore.Qt.ActionsContextMenu)
@@ -86,4 +87,5 @@ class ScheduleDock(dockarea.Dock):
         if idx:
             row = idx[0].row()
             rid = self.table_model.row_to_key[row]
+            self.status_bar.showMessage("Deleted RID {}".format(rid))
             asyncio.async(self.delete(rid))

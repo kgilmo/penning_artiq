@@ -7,7 +7,7 @@ import asyncio
 import time
 import os.path
 
-from artiq.language.experiment import is_experiment
+from artiq.language.environment import is_experiment
 from artiq.protocols import pyon
 
 
@@ -17,16 +17,6 @@ def parse_arguments(arguments):
         name, eq, value = argument.partition("=")
         d[name] = pyon.decode(value)
     return d
-
-
-def format_arguments(arguments):
-    fmtargs = []
-    for k, v in sorted(arguments.items(), key=itemgetter(0)):
-        fmtargs.append(k + "=" + repr(v))
-    if fmtargs:
-        return ", ".join(fmtargs)
-    else:
-        return ""
 
 
 def file_import(filename):
@@ -91,13 +81,14 @@ def asyncio_process_wait_timeout(process, timeout):
     # causes a futures.InvalidStateError inside asyncio if and when the
     # process terminates after the timeout.
     # Work around this problem.
-    end_time = time.monotonic() + timeout
-    r = True
-    while r:
-        r = yield from asyncio.wait_for(
-                process.stdout.read(1024),
-                timeout=end_time - time.monotonic())
-
+    @asyncio.coroutine
+    def process_wait_returncode_timeout():
+        while True:
+            if process.returncode is not None:
+                break
+            yield from asyncio.sleep(0.1)
+    yield from asyncio.wait_for(process_wait_returncode_timeout(),
+                                timeout=timeout)
 
 @asyncio.coroutine
 def asyncio_process_wait(process):

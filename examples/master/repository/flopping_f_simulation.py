@@ -23,29 +23,23 @@ def model_numpy(xdata, F0):
     return r
 
 
-class FloppingF(Experiment, AutoDB):
+class FloppingF(EnvExperiment):
     """Flopping F simulation"""
 
-    class DBKeys:
-        npoints = Argument(100)
-        min_freq = Argument(1000)
-        max_freq = Argument(2000)
+    def build(self):
+        self.attr_argument("frequency_scan", Scannable(
+            default=LinearScan(1000, 2000, 100)))
 
-        F0 = Argument(1500)
-        noise_amplitude = Argument(0.1)
+        self.attr_argument("F0", NumberValue(1500, min=1000, max=2000))
+        self.attr_argument("noise_amplitude", NumberValue(0.1, min=0, max=100))
 
-        frequency = Result()
-        brightness = Result()
+        self.frequency = self.set_result("flopping_f_frequency", [], True)
+        self.brightness = self.set_result("flopping_f_brightness", [], True)
 
-        flopping_freq = Parameter()
-
-    realtime_results = {
-        ("frequency", "brightness"): "xy"
-    }
+        self.attr_device("scheduler")
 
     def run(self):
-        for i in range(self.npoints):
-            frequency = (self.max_freq-self.min_freq)*i/(self.npoints - 1) + self.min_freq
+        for frequency in self.frequency_scan:
             brightness = model(frequency, self.F0) + self.noise_amplitude*random.random()
             self.frequency.append(frequency)
             self.brightness.append(brightness)
@@ -56,7 +50,7 @@ class FloppingF(Experiment, AutoDB):
     def analyze(self):
         popt, pcov = curve_fit(model_numpy,
                                self.frequency.read, self.brightness.read,
-                               p0=[self.flopping_freq])
+                               p0=[self.get_parameter("flopping_freq")])
         perr = np.sqrt(np.diag(pcov))
         if perr < 0.1:
-            self.flopping_freq = float(popt)
+            self.set_parameter("flopping_freq", float(popt))

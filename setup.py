@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Command
 import sys
 import os
 
 if sys.version_info[:3] < (3, 4, 3):
     raise Exception("You need at least Python 3.4.3 to run ARTIQ")
+
+class PushDocCommand(Command):
+    description = "uploads the documentation to m-labs.hk"
+    user_options = []
+    def initialize_options(self):
+        pass
+    def finalize_options(self):
+        pass
+    def run(self):
+        os.system("rsync -avz doc/manual/_build/html/ shell.serverraum.org:~/web/m-labs.hk/artiq/manual")
 
 requirements = [
     "sphinx", "sphinx-argparse", "pyserial", "numpy", "scipy",
@@ -42,6 +52,9 @@ setup(
     license="BSD",
     install_requires=requirements,
     extras_require={},
+    dependency_links=[
+        "git+https://github.com/pyqtgraph/pyqtgraph.git@a6d5e28#egg=pyqtgraph"
+    ],
     packages=find_packages(),
     namespace_packages=[],
     test_suite="artiq.test",
@@ -49,5 +62,6 @@ setup(
     ext_modules=[],
     entry_points={
         "console_scripts": scripts,
-    }
+    },
+    cmdclass={"push_doc":PushDocCommand}
 )

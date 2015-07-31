@@ -4,7 +4,6 @@
 #include <uart.h>
 #include <console.h>
 #include <system.h>
-#include <time.h>
 #include <generated/csr.h>
 #include <hw/flags.h>
 
@@ -29,8 +28,9 @@
 #include "kloader.h"
 #include "flash_storage.h"
 #include "clock.h"
+#include "rtiocrg.h"
 #include "test_mode.h"
-#include "kserver.h"
+#include "net_server.h"
 #include "session.h"
 #include "moninj.h"
 
@@ -179,46 +179,44 @@ static void regular_main(void)
 #endif
     puts("Accepting sessions on serial (PPP).");
     network_init_ppp();
-    kserver_init();
+    net_server_init();
     moninj_init();
 
     session_end();
     while(1) {
+        kloader_service_essential_kmsg();
         lwip_service();
-        kserver_service();
+        net_server_service();
     }
 }
 
 static void blink_led(void)
 {
-    int i, ev, p;
+    int i;
+    long long int t;
 
-    p = identifier_frequency_read()/10;
-    time_init();
     for(i=0;i<3;i++) {
         leds_out_write(1);
-        while(!elapsed(&ev, p));
+        t = clock_get_ms();
+        while(clock_get_ms() < t + 250);
         leds_out_write(0);
-        while(!elapsed(&ev, p));
+        t = clock_get_ms();
+        while(clock_get_ms() < t + 250);
     }
 }
 
 static int check_test_mode(void)
 {
     char c;
+    long long int t;
 
-    timer0_en_write(0);
-    timer0_reload_write(0);
-    timer0_load_write(identifier_frequency_read() >> 2);
-    timer0_en_write(1);
-    timer0_update_value_write(1);
-    while(timer0_value_read()) {
+    t = clock_get_ms();
+    while(clock_get_ms() < t + 1000) {
         if(readchar_nonblock()) {
             c = readchar();
             if((c == 't')||(c == 'T'))
                 return 1;
         }
-        timer0_update_value_write(1);
     }
     return 0;
 }
@@ -231,6 +229,8 @@ int main(void)
 
     puts("ARTIQ runtime built "__DATE__" "__TIME__"\n");
 
+    clock_init();
+    rtiocrg_init();
     puts("Press 't' to enter test mode...");
     blink_led();
 

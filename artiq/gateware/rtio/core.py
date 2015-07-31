@@ -44,7 +44,8 @@ class _RTIOCounter(Module):
 
         # # #
 
-        self.sync.rio += self.value_rio.eq(self.value_rio + 1),
+        # note: counter is in rtio domain and never affected by the reset CSRs
+        self.sync.rtio += self.value_rio.eq(self.value_rio + 1)
         gt = _GrayCodeTransfer(width)
         self.submodules += gt
         self.comb += gt.i.eq(self.value_rio), self.value_sys.eq(gt.o)
@@ -99,6 +100,7 @@ class _OutputManager(Module):
 
         self.underflow = Signal()  # valid 1 cycle after we, pulsed
         self.sequence_error = Signal()
+        self.collision_error = Signal()
 
         # # #
 
@@ -115,19 +117,43 @@ class _OutputManager(Module):
         # Special cases
         replace = Signal()
         sequence_error = Signal()
+        collision_error = Signal()
+        any_error = Signal()
         nop = Signal()
         self.sync.rsys += [
-            replace.eq(self.ev.timestamp == buf.timestamp[fine_ts_width:]),
-            sequence_error.eq(self.ev.timestamp < buf.timestamp[fine_ts_width:])
+            # Note: replace does not perform any RTLink address checks,
+            # i.e. a write to a different address will be silently replaced
+            # as well.
+            replace.eq(self.ev.timestamp == buf.timestamp),
+            # Detect sequence errors on coarse timestamps only
+            # so that they are mutually exclusive with collision errors.
+            sequence_error.eq(self.ev.timestamp[fine_ts_width:]
+                              < buf.timestamp[fine_ts_width:])
         ]
+        if fine_ts_width:
+            self.sync.rsys += collision_error.eq(
+                (self.ev.timestamp[fine_ts_width:] == buf.timestamp[fine_ts_width:])
+                & (self.ev.timestamp[:fine_ts_width] != buf.timestamp[:fine_ts_width]))
+        self.comb += any_error.eq(sequence_error | collision_error)
         if interface.suppress_nop:
-            self.sync.rsys += nop.eq(
-                optree("&", 
-                       [getattr(self.ev, a) == getattr(buf, a)
-                        for a in ("data", "address")
-                        if hasattr(self.ev, a)],
-                       default=0))
-        self.comb += self.sequence_error.eq(self.we & sequence_error)
+            # disable NOP at reset: do not suppress a first write with all 0s
+            nop_en = Signal(reset=0)
+            self.sync.rsys += [
+                nop.eq(nop_en &
+                    optree("&",
+                           [getattr(self.ev, a) == getattr(buf, a)
+                            for a in ("data", "address")
+                            if hasattr(self.ev, a)],
+                           default=0)),
+                # buf now contains valid data. enable NOP.
+                If(self.we & ~any_error, nop_en.eq(1)),
+                # underflows cancel the write. allow it to be retried.
+                If(self.underflow, nop_en.eq(0))
+            ]
+        self.comb += [
+            self.sequence_error.eq(self.we & sequence_error),
+            self.collision_error.eq(self.we & collision_error)
+        ]
 
         # Buffer read and FIFO write
         self.comb += fifo.din.eq(buf)
@@ -145,7 +171,7 @@ class _OutputManager(Module):
                         fifo.we.eq(1)
                     )
                 ),
-                If(self.we & ~replace & ~nop & ~sequence_error,
+                If(self.we & ~replace & ~nop & ~any_error,
                    fifo.we.eq(1)
                 )
             )
@@ -154,7 +180,7 @@ class _OutputManager(Module):
         # Must come after read to handle concurrent read+write properly
         self.sync.rsys += [
             buf_just_written.eq(0),
-            If(self.we & ~nop & ~sequence_error,
+            If(self.we & ~nop & ~any_error,
                 buf_just_written.eq(1),
                 buf_pending.eq(1),
                 buf.eq(self.ev)
@@ -275,9 +301,10 @@ class _KernelCSRs(AutoCSR):
             self.o_address = CSRStorage(address_width)
         self.o_timestamp = CSRStorage(full_ts_width)
         self.o_we = CSR()
-        self.o_status = CSRStatus(3)
+        self.o_status = CSRStatus(4)
         self.o_underflow_reset = CSR()
         self.o_sequence_error_reset = CSR()
+        self.o_collision_error_reset = CSR()
 
         if data_width:
             self.i_data = CSRStatus(data_width)
@@ -291,8 +318,7 @@ class _KernelCSRs(AutoCSR):
 
 
 class RTIO(Module):
-    def __init__(self, channels, clk_freq, full_ts_width=63,
-                 guard_io_cycles=20):
+    def __init__(self, channels, full_ts_width=63, guard_io_cycles=20):
         data_width = max(rtlink.get_data_width(c.interface)
                          for c in channels)
         address_width = max(rtlink.get_address_width(c.interface)
@@ -320,11 +346,15 @@ class RTIO(Module):
             self.cd_rsys.rst.eq(self.kcsrs.reset.storage)
         ]
         self.comb += self.cd_rio.clk.eq(ClockSignal("rtio"))
-        self.specials += AsyncResetSynchronizer(self.cd_rio,
-                                                self.kcsrs.reset.storage)
+        self.specials += AsyncResetSynchronizer(
+            self.cd_rio,
+            self.kcsrs.reset.storage | ResetSignal("rtio",
+                                                   allow_reset_less=True))
         self.comb += self.cd_rio_phy.clk.eq(ClockSignal("rtio"))
-        self.specials += AsyncResetSynchronizer(self.cd_rio_phy,
-                                                self.kcsrs.reset_phy.storage)
+        self.specials += AsyncResetSynchronizer(
+            self.cd_rio_phy,
+            self.kcsrs.reset_phy.storage | ResetSignal("rtio",
+                                                       allow_reset_less=True))
 
         # Managers
         self.submodules.counter = _RTIOCounter(full_ts_width - fine_ts_width)
@@ -355,17 +385,22 @@ class RTIO(Module):
 
             underflow = Signal()
             sequence_error = Signal()
+            collision_error = Signal()
             self.sync.rsys += [
                 If(selected & self.kcsrs.o_underflow_reset.re,
                    underflow.eq(0)),
                 If(selected & self.kcsrs.o_sequence_error_reset.re,
                    sequence_error.eq(0)),
+                If(selected & self.kcsrs.o_collision_error_reset.re,
+                   collision_error.eq(0)),
                 If(o_manager.underflow, underflow.eq(1)),
-                If(o_manager.sequence_error, sequence_error.eq(1))
+                If(o_manager.sequence_error, sequence_error.eq(1)),
+                If(o_manager.collision_error, collision_error.eq(1))
             ]
             o_statuses.append(Cat(~o_manager.writable,
                                   underflow,
-                                  sequence_error))
+                                  sequence_error,
+                                  collision_error))
 
             if channel.interface.i is not None:
                 i_manager = _InputManager(channel.interface.i, self.counter,
